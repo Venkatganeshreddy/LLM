@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useApiKeys } from "@/hooks/useApiKeys";
 import { ApiKeyForm } from "@/components/settings/ApiKeyForm";
 import { ApiKeyCard } from "@/components/settings/ApiKeyCard";
@@ -17,7 +18,7 @@ export default function SettingsPage() {
       </h1>
       <p className="mb-8" style={{ color: "var(--muted)" }}>
         Add your API keys to start chatting with LLMs. Keys are encrypted and
-        stored securely.
+        stored securely. Each user&apos;s keys and conversations are private.
       </p>
 
       <div className="mb-8">
@@ -51,6 +52,18 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      {keys.length > 0 && (
+        <div className="mt-8">
+          <Link
+            href="/"
+            className="inline-block px-6 py-3 rounded-lg font-medium text-white transition-colors"
+            style={{ background: "var(--accent)" }}
+          >
+            Start Chatting &rarr;
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

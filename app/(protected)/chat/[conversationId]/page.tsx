@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useParams, useSearchParams } from "next/navigation";
@@ -85,6 +85,7 @@ function ActiveChat({
   isInitial: boolean;
 }) {
   const [input, setInput] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const initialSent = useRef(false);
 
   const {
@@ -114,12 +115,18 @@ function ActiveChat({
         });
       }
     },
+    onError: (err) => {
+      console.error("Chat stream error:", err);
+      setError(err.message || "Failed to get response from LLM");
+    },
   });
 
   const isStreaming = status === "streaming" || status === "submitted";
 
-  // Set initial messages from DB
+  // For initial conversations: DON'T pre-set messages, let sendMessage handle it
+  // For existing conversations: load all messages from DB
   useEffect(() => {
+    if (isInitial) return; // sendMessage will add the user message itself
     if (initialMessages.length > 0) {
       const chatMessages = initialMessages.map((m) => ({
         id: m.id,
@@ -128,22 +135,24 @@ function ActiveChat({
       }));
       setMessages(chatMessages);
     }
-  }, [initialMessages, setMessages]);
+  }, [initialMessages, setMessages, isInitial]);
 
   // Auto-trigger first message for newly created conversations
   useEffect(() => {
     if (!isInitial || initialSent.current) return;
     if (initialMessages.length === 1 && initialMessages[0].role === "user") {
       initialSent.current = true;
+      setError(null);
       sendMessage({ text: initialMessages[0].content });
     }
   }, [isInitial, initialMessages, sendMessage]);
 
-  async function handleSendMessage() {
+  const handleSendMessage = useCallback(async () => {
     if (!input.trim() || isStreaming) return;
 
     const messageText = input.trim();
     setInput("");
+    setError(null);
 
     // Save user message to DB
     await fetch("/api/messages", {
@@ -166,7 +175,7 @@ function ActiveChat({
     }
 
     sendMessage({ text: messageText });
-  }
+  }, [input, isStreaming, conversation, messages.length, sendMessage]);
 
   const displayMessages = messages.map((m) => ({
     id: m.id,
@@ -189,6 +198,12 @@ function ActiveChat({
       </div>
 
       <ChatMessages messages={displayMessages} isLoading={isStreaming} />
+
+      {error && (
+        <div className="px-4 py-2 text-sm text-red-400 border-t" style={{ borderColor: "var(--border)", background: "var(--sidebar-bg)" }}>
+          Error: {error}
+        </div>
+      )}
 
       <ChatInput
         value={input}
