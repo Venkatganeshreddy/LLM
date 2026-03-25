@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useParams, useSearchParams } from "next/navigation";
@@ -22,46 +22,13 @@ export default function ChatPage() {
   const isInitial = searchParams.get("initial") === "true";
 
   const [conversation, setConversation] = useState<Conversation | null>(null);
-  const [loadingConv, setLoadingConv] = useState(true);
-  const [input, setInput] = useState("");
-  const initialSent = useRef(false);
-
-  const {
-    messages,
-    sendMessage,
-    status,
-    setMessages,
-  } = useChat({
-    transport: new DefaultChatTransport({
-      api: "/api/chat",
-      body: {
-        provider: conversation?.provider,
-        model: conversation?.model,
-      },
-    }),
-    onFinish: async ({ message }) => {
-      // Save assistant message to DB
-      const content = getTextContent(message.parts);
-      if (content) {
-        await fetch("/api/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            conversation_id: conversationId,
-            role: "assistant",
-            content,
-          }),
-        });
-      }
-    },
-  });
-
-  const isStreaming = status === "streaming" || status === "submitted";
+  const [initialMessages, setInitialMessages] = useState<DBMessage[] | null>(null);
+  const [loading, setLoading] = useState(true);
 
   // Load conversation and messages
   useEffect(() => {
     async function load() {
-      setLoadingConv(true);
+      setLoading(true);
       try {
         const [convRes, msgsRes] = await Promise.all([
           fetch(`/api/conversations/${conversationId}`),
@@ -69,92 +36,21 @@ export default function ChatPage() {
         ]);
 
         if (convRes.ok) {
-          const conv = await convRes.json();
-          setConversation(conv);
+          setConversation(await convRes.json());
         }
-
         if (msgsRes.ok) {
-          const dbMessages: DBMessage[] = await msgsRes.json();
-          const chatMessages = dbMessages.map((m) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant" | "system",
-            parts: [{ type: "text" as const, text: m.content }],
-          }));
-          setMessages(chatMessages);
+          setInitialMessages(await msgsRes.json());
         }
       } catch (err) {
         console.error("Failed to load conversation:", err);
       } finally {
-        setLoadingConv(false);
+        setLoading(false);
       }
     }
-
     load();
-  }, [conversationId, setMessages]);
+  }, [conversationId]);
 
-  // Auto-send the first message if this is a newly created conversation
-  const triggerInitialMessage = useCallback(async () => {
-    if (!conversation || !isInitial || initialSent.current) return;
-    initialSent.current = true;
-
-    const msgsRes = await fetch(
-      `/api/messages?conversationId=${conversationId}`
-    );
-    if (!msgsRes.ok) return;
-
-    const dbMessages: DBMessage[] = await msgsRes.json();
-    if (dbMessages.length === 1 && dbMessages[0].role === "user") {
-      setMessages([
-        {
-          id: dbMessages[0].id,
-          role: "user",
-          parts: [{ type: "text" as const, text: dbMessages[0].content }],
-        },
-      ]);
-
-      // Trigger the stream by sending the same text
-      sendMessage({ text: dbMessages[0].content });
-    }
-  }, [conversation, isInitial, conversationId, setMessages, sendMessage]);
-
-  useEffect(() => {
-    if (conversation && isInitial && !loadingConv) {
-      triggerInitialMessage();
-    }
-  }, [conversation, isInitial, loadingConv, triggerInitialMessage]);
-
-  async function handleSendMessage() {
-    if (!input.trim() || isStreaming || !conversation) return;
-
-    const messageText = input.trim();
-    setInput("");
-
-    // Save user message to DB first
-    await fetch("/api/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        conversation_id: conversationId,
-        role: "user",
-        content: messageText,
-      }),
-    });
-
-    // Auto-update title if it's a generic title and this is early in the conversation
-    if (messages.length <= 1 && conversation.title === "New Chat") {
-      const title = messageText.substring(0, 100);
-      fetch(`/api/conversations/${conversationId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
-      });
-    }
-
-    // Send message via useChat (this triggers the stream)
-    sendMessage({ text: messageText });
-  }
-
-  if (loadingConv) {
+  if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <p style={{ color: "var(--muted)" }}>Loading conversation...</p>
@@ -170,7 +66,108 @@ export default function ChatPage() {
     );
   }
 
-  // Convert UIMessage format to our display format
+  return (
+    <ActiveChat
+      conversation={conversation}
+      initialMessages={initialMessages || []}
+      isInitial={isInitial}
+    />
+  );
+}
+
+function ActiveChat({
+  conversation,
+  initialMessages,
+  isInitial,
+}: {
+  conversation: Conversation;
+  initialMessages: DBMessage[];
+  isInitial: boolean;
+}) {
+  const [input, setInput] = useState("");
+  const initialSent = useRef(false);
+
+  const {
+    messages,
+    sendMessage,
+    status,
+    setMessages,
+  } = useChat({
+    transport: new DefaultChatTransport({
+      api: "/api/chat",
+      body: {
+        provider: conversation.provider,
+        model: conversation.model,
+      },
+    }),
+    onFinish: async ({ message }) => {
+      const content = getTextContent(message.parts);
+      if (content) {
+        await fetch("/api/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversation_id: conversation.id,
+            role: "assistant",
+            content,
+          }),
+        });
+      }
+    },
+  });
+
+  const isStreaming = status === "streaming" || status === "submitted";
+
+  // Set initial messages from DB
+  useEffect(() => {
+    if (initialMessages.length > 0) {
+      const chatMessages = initialMessages.map((m) => ({
+        id: m.id,
+        role: m.role as "user" | "assistant" | "system",
+        parts: [{ type: "text" as const, text: m.content }],
+      }));
+      setMessages(chatMessages);
+    }
+  }, [initialMessages, setMessages]);
+
+  // Auto-trigger first message for newly created conversations
+  useEffect(() => {
+    if (!isInitial || initialSent.current) return;
+    if (initialMessages.length === 1 && initialMessages[0].role === "user") {
+      initialSent.current = true;
+      sendMessage({ text: initialMessages[0].content });
+    }
+  }, [isInitial, initialMessages, sendMessage]);
+
+  async function handleSendMessage() {
+    if (!input.trim() || isStreaming) return;
+
+    const messageText = input.trim();
+    setInput("");
+
+    // Save user message to DB
+    await fetch("/api/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversation_id: conversation.id,
+        role: "user",
+        content: messageText,
+      }),
+    });
+
+    // Auto-update title if early in conversation
+    if (messages.length <= 1 && conversation.title === "New Chat") {
+      fetch(`/api/conversations/${conversation.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: messageText.substring(0, 100) }),
+      });
+    }
+
+    sendMessage({ text: messageText });
+  }
+
   const displayMessages = messages.map((m) => ({
     id: m.id,
     role: m.role as "user" | "assistant" | "system",
@@ -179,15 +176,11 @@ export default function ChatPage() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Header */}
       <div
         className="px-4 py-3 border-b flex items-center justify-between"
         style={{ borderColor: "var(--border)" }}
       >
-        <h2
-          className="font-medium truncate"
-          style={{ color: "var(--foreground)" }}
-        >
+        <h2 className="font-medium truncate" style={{ color: "var(--foreground)" }}>
           {conversation.title}
         </h2>
         <span className="text-xs" style={{ color: "var(--muted)" }}>

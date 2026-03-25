@@ -26,7 +26,20 @@ export const PROVIDER_MODELS: ProviderModels[] = [
   {
     provider: "openrouter",
     label: "OpenRouter",
-    models: [],
+    models: [
+      { id: "openai/gpt-4o", name: "GPT-4o" },
+      { id: "openai/gpt-4o-mini", name: "GPT-4o Mini" },
+      { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4" },
+      { id: "anthropic/claude-haiku-4", name: "Claude Haiku 4" },
+      { id: "google/gemini-2.5-pro-preview", name: "Gemini 2.5 Pro" },
+      { id: "google/gemini-2.5-flash-preview", name: "Gemini 2.5 Flash" },
+      { id: "meta-llama/llama-4-maverick", name: "Llama 4 Maverick" },
+      { id: "meta-llama/llama-4-scout", name: "Llama 4 Scout" },
+      { id: "deepseek/deepseek-r1", name: "DeepSeek R1" },
+      { id: "deepseek/deepseek-chat-v3", name: "DeepSeek V3" },
+      { id: "mistralai/mistral-large", name: "Mistral Large" },
+      { id: "qwen/qwen3-235b", name: "Qwen3 235B" },
+    ],
     supportsCustomModel: true,
   },
 ];
